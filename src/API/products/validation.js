@@ -1,4 +1,4 @@
-import { checkSchema, validationResult } from "express-validator";
+/*import { checkSchema, validationResult } from "express-validator";
 import createHttpError from "http-errors";
 
 
@@ -61,4 +61,4 @@ export const triggerBadRequest = (req, res, next) => {
       })
     );
   }
-};
+};*/

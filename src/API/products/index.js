@@ -1,147 +1,273 @@
-import Express from "express";
-import fs from "fs-extra";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-import uniqid from "uniqid";
-import { getProducts, writeProducts} from "../../lib/fs-tools.js"
-import createHttpError from "http-errors"
-import { checkProductsSchema, triggerBadRequest } from "./validation.js";
-import multer from "multer"
-import { extname } from "path"
-
-const productsRouter = Express.Router();
-
-const productsJSONPATH = join(dirname(fileURLToPath(import.meta.url)), "products.json")
+import express from "express";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
+import createHttpError from "http-errors";
+import productsModel from "./model.js"
+import multer from "multer";
 
 
+const productsRouter = express.Router();
 
+productsRouter.post("/", async (req, res, next) => {
+  try {
+   /*const { reviewId, ...productsData } = req.body;
+    const review = await reviewsModel.findById(reviewId);
+    if (!review) {
+      return next(
+        createHttpError(404, `Review with id ${reviewId} not found!`)
+      );
+    }
+    const newProduct = new productsModel({
+      ...productsData,
+      review: productId,
+    });  */ 
+    const newProduct = new productsModel(req.body)
+    const { _id } = await newProduct.save()
 
-const imagesProductsJSONPath = join(dirname(fileURLToPath(import.meta.url)), "../../public/img/products")
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, imagesProductsJSONPath)
-  },
-  filename: function (req, file, cb) {
-    const originalFileExtension = extname(file.originalname)
-    cb(null, req.params.id + originalFileExtension)
+    res.status(201).send({ _id })
+  } catch (error) {
+    next(error);
   }
-})
-
-const upload = multer({ storage: storage })
-
-
-
-productsRouter.post("/", checkProductsSchema, triggerBadRequest, async (req, res) => {
- const newProduct = {
-  ...req.body,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  id: uniqid(),
- }
-
- const productsArray = await getProducts()
- productsArray.push(newProduct)
- 
- await writeProducts(productsArray)
-
- res.status(201).send({ id: newProduct.id })
-
-
 });
+
 productsRouter.get("/", async (req, res, next) => {
-  try{
- const productsArray = await getProducts()
-  res.send(productsArray)
-}catch (error){
-  next(error)
-}
-});
-
-productsRouter.get("/:id", triggerBadRequest, async (req, res, next) => {
-  try{
- const productsArray = await getProducts()
-
- const foundProducts = productsArray.find(product => product.id === req.params.id)
-
-if(!foundProducts){
-  next({ status: 400, message: "Product not found"})
-  return
-} 
- else {
-  res.send(foundProducts)
-}
+  try {
+    const mongoQuery = q2m(req.query)
+    const review = await productsModel
+      .find(mongoQuery.criteria, mongoQuery.options.fields)
+      .skip(mongoQuery.options.skip)
+      .limit(mongoQuery.options.limit)
+      .sort(mongoQuery.options.sort)
+      //.populate("Reviews");
+    res.send(review);
+  } catch (error) {
+    next(error);
   }
-catch (error){
-  next(error)
-}
 });
 
-
+productsRouter.get("/:productId", async (req, res, next) => {
+  try {
+    const user = await productsModel.findById(req.params.productId);
+    if (user) {
+      res.send(user);
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found!`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
 
 productsRouter.put("/:productId", async (req, res, next) => {
-
- const productsArray = await getProducts()
-
- const index = productsArray.findIndex(product => product.id === req.params.productId)
-
- const oldProduct = productsArray[index]
- const updatedProduct = {
-  ...oldProduct,
-  ...req.body,
-  updatedAt: new Date()
- }
-
- productsArray[index] = updatedProduct
-
- await writeProducts(productsArray)
-
- res.send(updatedProduct)
-
-
+  try {
+    const updatedProduct = await productsModel.findByIdAndUpdate(
+      req.params.productId,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (updatedProduct) {
+      res.send(updatedProduct);
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found!`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
 });
 
 productsRouter.delete("/:productId", async (req, res, next) => {
-  try{
-  const productsArray = await getProducts()
-
-  const remainingProducts = productsArray.filter(product => product.id !== req.params.productId)
-
-  if(productsArray.length !== remainingProducts.length){
-
-    await writeProducts(remainingProducts)
-    res.status(204).send()
-
-  } else {
-
-    next(createHttpError(404, `Product with id ${req.params.id} not found`))
+  try {
+    const deletedProduct = await productsModel.findByIdAndDelete(
+      req.params.productId
+    );
+    if (deletedProduct) {
+      res.status(204).send();
+    } else {
+      next(
+        createHttpError(404, `Product with id ${req.params.productId} not found!`)
+      );
+    }
+  } catch (error) {
+    next(error);
   }
-}  catch (error) {
-    next(error)
+});
+const cloudinaryUploader = multer({
+  storage: new CloudinaryStorage({
+    cloudinary,
+    params: {
+      folder: "u4-w1-solo-project/public",
+    },
+  }),
+}).single("productImg");
+
+productsRouter.post(
+  "/:productId/uploadImage",
+  cloudinaryUploader,
+  async (req, res, next) => {
+    try {
+      const product = await productsModel.findById(req.params.productId);
+      product.imageUrl = req.file.path;
+      await product.save();
+      if (product) {
+        res.send({ message: "File uploaded successfully" });
+      } else {
+        next(
+          createHttpError(
+            404,
+            `Product with id ${req.params.productId} not found`
+          )
+        );
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+productsRouter.post("/:productId/reviews", async (req, res, next) => {
+  try {
+    const newReview = req.body;
+    const addReview = {
+      ...newReview,
+    };
+    const updatedProduct = await productsModel.findByIdAndUpdate(
+      req.params.productId,
+      {
+        $push: { reviews: addReview },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+    if (updatedProduct) {
+      res.send(updatedProduct);
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
   }
 });
 
-
-productsRouter.post("/:id/upload", upload.single("image"),  async (req, res) => {
-  const image = `http://localhost:3001/public/${req.params.id}${ extname(req.file.originalname)}`
-
-  const productsArray = await getProducts()
-
-  const index = productsArray.findIndex(product => product.id === req.params.id)
- 
-  const oldProduct = productsArray[index]
-  const updatedProduct = {
-   ...oldProduct,
-   image,
-   updatedAt: new Date()
+productsRouter.get("/:productId/reviews", async (req, res, next) => {
+  try {
+    const review = await productsModel.findById(req.params.productId);
+    if (review) {
+      res.send(review.reviews);
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
   }
- 
-  productsArray[index] = updatedProduct
- 
-  await writeProducts(productsArray)
- 
-  res.send(updatedProduct)
-})
- 
-
+});
+productsRouter.get("/:productId/reviews/:reviewId", async (req, res, next) => {
+  try {
+    const review = await productsModel.findById(req.params.productId);
+    if (review) {
+      const selectedReview = review.reviews.find(
+        (review) => review._id.toString() === req.params.reviewId
+      );
+      if (selectedReview) {
+        res.send(selectedReview);
+      } else {
+        next(
+          createHttpError(
+            404,
+            `Review with id ${req.params.reviewId} not found`
+          )
+        );
+      }
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+productsRouter.put("/:productId/reviews/:reviewId", async (req, res, next) => {
+  try {
+    const review = await productsModel.findById(req.params.productId);
+    if (review) {
+      const index = review.reviews.findIndex(
+        (review) => review._id.toString() === req.params.reviewId
+      );
+      if (index !== -1) {
+        review.reviews[index] = {
+          ...review.reviews[index].toObject(),
+          ...req.body,
+        };
+        await review.save();
+        res.send(review);
+      } else {
+        next(
+          createHttpError(
+            404,
+            `Review with id ${req.params.reviewId} not found`
+          )
+        );
+      }
+    } else {
+      next(
+        createHttpError(
+          404,
+          `Product with id ${req.params.productId} not found`
+        )
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+productsRouter.delete(
+  "/:productId/reviews/:reviewId",
+  async (req, res, next) => {
+    try {
+      const updatedProduct = await productsModel.findByIdAndUpdate(
+        req.params.productId,
+        { $pull: { reviews: { _id: req.params.reviewId } } },
+        { new: true, runValidators: true }
+      );
+      if (updatedProduct) {
+        res.send(updatedProduct);
+      } else {
+        next(
+          createHttpError(
+            404,
+            `Product with id ${req.params.productId} not found`
+          )
+        );
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 export default productsRouter;

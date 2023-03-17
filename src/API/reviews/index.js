@@ -1,10 +1,76 @@
-import Express from "express";
+
+reviewsRouter.get("/", async (req, res, next) => {
+  try {
+    const authors = await reviewsModel.find();
+    res.send(authors);
+  } catch (error) {
+    next(error);
+  }
+});
+
+reviewsRouter.get("/:reviewId", async (req, res, next) => {
+  try {
+    const review = await reviewsModel.findById(req.params.reviewId);
+    if (review) {
+      res.send(review);
+    } else {
+      next(
+        createError(404, `Review with id ${req.params.reviewId} not found!`)
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+reviewsRouter.put("/:reviewId", async (req, res, next) => {
+  try {
+    const updatedReview = await reviewsModel.findByIdAndUpdate(
+      req.params.reviewId,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (updatedReview) {
+      res.send(updatedReview);
+    } else {
+      next(
+        createError(404, `Review with id ${req.params.reviewId} not found!`)
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+reviewsRouter.delete("/:reviewId", async (req, res, next) => {
+  try {
+    const deletedAuthor = await reviewsModel.findByIdAndUpdate(
+      req.params.reviewId
+    );
+    if (deletedAuthor) {
+      res.status(204).send();
+    } else {
+      next(
+        createError(404, `Review with id ${req.params.reviewId} not found!`)
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default reviewsRouter;
+
+
+
+
+/*import Express from "express";
 import fs from "fs-extra";
 import { getReviews, writeReviews} from "../../lib/fs-tools.js"
 import {dirname, join } from "path"
 import { fileURLToPath } from "url";
 import uniqid from "uniqid"
-import { checkReviewsSchema, triggerBadRequest } from "./validation.js";
+//import { checkReviewsSchema, triggerBadRequest } from "./validation.js";
 
 
 const reviewsRouter = Express.Router();
@@ -99,4 +165,4 @@ reviewsRouter.get("/:productId/reviews", async (req, res, next) => {
 
 
 
-export default reviewsRouter;
+export default reviewsRouter;*/
